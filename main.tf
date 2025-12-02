@@ -21,6 +21,9 @@ provider "aws" {
   region = var.region
 }
 
+# Who is running Terraform? (still fine to keep, useful for debugging)
+data "aws_caller_identity" "current" {}
+
 # -----------------------------
 # VPC with 3 public + 3 private
 # -----------------------------
@@ -119,8 +122,16 @@ module "eks" {
 
   enable_irsa = true
 
-  # NOTE: manage_aws_auth_configmap REMOVED for v20+
-  # manage_aws_auth_configmap = true  # <-- deleted
+  # EKS endpoint so Terraform host can reach API
+  cluster_endpoint_public_access  = true
+  cluster_endpoint_private_access = false
+
+  # Use new Access Entry API and allow cluster creator admin
+  authentication_mode                       = "API_AND_CONFIG_MAP"
+  enable_cluster_creator_admin_permissions  = true
+
+  # ❌ access_entries removed to avoid duplicate for same principal ARN
+  # (cluster_creator now gives your IAM user admin access)
 
   eks_managed_node_groups = {
     spot-ng = {
@@ -149,7 +160,7 @@ module "eks" {
 }
 
 # -----------------------------
-# Configure Kubernetes / Helm providers from EKS (NO data sources)
+# Configure Kubernetes / Helm providers from EKS
 # -----------------------------
 provider "kubernetes" {
   host                   = module.eks.cluster_endpoint
@@ -198,7 +209,6 @@ resource "helm_release" "kube_prometheus_stack" {
       grafana = {
         service = {
           type = "LoadBalancer"
-          # Optional: If you want an internet-facing LB with specific settings, add annotations here.
           # annotations = {
           #   "service.beta.kubernetes.io/aws-load-balancer-scheme" = "internet-facing"
           # }
